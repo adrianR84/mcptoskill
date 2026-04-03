@@ -1,6 +1,7 @@
 import type { McpClientResult, Tool, ToolParam } from "./client.js";
+import type { AgentConfig } from "./agents.js";
 
-export type Target = "openclaw" | "hermes";
+export type Target = string; // Now represents agent ID
 
 export interface OAuthTokenInfo {
   access_token: string;
@@ -18,7 +19,10 @@ export interface OAuthTokenInfo {
 }
 
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 function buildExampleArgs(params: ToolParam[]): string {
@@ -32,20 +36,20 @@ function buildExampleArgs(params: ToolParam[]): string {
   return `'${JSON.stringify(example)}'`;
 }
 
-function getScriptPathPrefix(skillName: string, target: Target): string {
-  return target === "hermes"
-    ? `$HOME/.hermes/skills/mcptoskill/${skillName}`
-    : `$HOME/.openclaw/skills/${skillName}`;
+function getScriptPathPrefix(skillName: string, agent: AgentConfig): string {
+  return `${agent.skillsDir}/${skillName}`;
 }
 
-function generateSkillMd(result: McpClientResult, skillName: string, target: Target): string {
+function generateSkillMd(
+  result: McpClientResult,
+  skillName: string,
+  agent: AgentConfig,
+): string {
   const { serverInfo, tools, serverUrl } = result;
-  const scriptPathPrefix = getScriptPathPrefix(skillName, target);
+  const scriptPathPrefix = getScriptPathPrefix(skillName, agent);
   const scriptPath = `${scriptPathPrefix}/scripts/${skillName}.sh`;
 
-  const triggerPhrases = tools
-    .map((t) => t.name.replace(/-/g, " "))
-    .join(", ");
+  const triggerPhrases = tools.map((t) => t.name.replace(/-/g, " ")).join(", ");
 
   const toolDocs = tools
     .map((t) => {
@@ -62,7 +66,9 @@ function generateSkillMd(result: McpClientResult, skillName: string, target: Tar
         "",
         t.description,
         "",
-        ...(paramLines.length > 0 ? ["**Parameters:**", ...paramLines, ""] : []),
+        ...(paramLines.length > 0
+          ? ["**Parameters:**", ...paramLines, ""]
+          : []),
         "```bash",
         `${scriptPath} ${t.name} ${exampleArgs}`,
         "```",
@@ -77,55 +83,26 @@ function generateSkillMd(result: McpClientResult, skillName: string, target: Tar
     .replace(/\n/g, "\\n")
     .replace(/\r/g, "\\r");
 
-  if (target === "hermes") {
-    const toolNames = tools.map((t) => t.name);
-    const metadataJson = JSON.stringify({
-      hermes: { tags: toolNames, category: "mcptoskill" },
-    });
-    return [
-      "---",
-      `name: ${skillName}`,
-      `description: "${escapedDesc}"`,
-      `version: 1.0.0`,
-      `author: mcptoskill`,
-      `license: MIT`,
-      `metadata: ${metadataJson}`,
-      "---",
-      "",
-      `# ${serverInfo.name}`,
-      "",
-      serverInfo.instructions ?? "",
-      "",
-      "## Quick Start",
-      "",
-      "```bash",
-      `${scriptPath} <tool-name> '<json-args>'`,
-      "```",
-      "",
-      "## Tools",
-      "",
-      toolDocs,
-    ]
-      .join("\n")
-      .trim() + "\n";
-  }
+  const metadataJson = JSON.stringify(agent.metadata ?? {});
 
-  // OpenClaw: requires.bins: [] — don't require curl; gateway's PATH at load time is often
-  // minimal (systemd/Docker), so bin checks fail. Script runs in agent context.
-  // always: true — bypass eligibility checks so skill reliably appears in list.
-  const metadataJson = JSON.stringify({
-    clawdbot: {},
-    openclaw: { requires: { bins: [] }, always: true },
-  });
-
-  return [
+  const frontmatter = [
     "---",
     `name: ${skillName}`,
     `description: "${escapedDesc}"`,
-    `homepage: ${serverUrl}`,
-    `allowed-tools: Bash(curl:*)`,
+    `version: 1.0.0`,
+    `author: mcptoskill`,
+    `license: MIT`,
     `metadata: ${metadataJson}`,
-    "---",
+  ];
+
+  if (agent.id === "openclaw") {
+    frontmatter.push(`homepage: ${serverUrl}`);
+    frontmatter.push(`allowed-tools: Bash(curl:*)`);
+  }
+
+  frontmatter.push("---");
+
+  const content = [
     "",
     `# ${serverInfo.name}`,
     "",
@@ -140,16 +117,19 @@ function generateSkillMd(result: McpClientResult, skillName: string, target: Tar
     "## Tools",
     "",
     toolDocs,
-  ]
-    .join("\n")
-    .trim() + "\n";
+  ];
+
+  return [...frontmatter, ...content].join("\n").trim() + "\n";
 }
 
 function curlHeaderLines(extraHeaders: Record<string, string>): string[] {
   return Object.entries(extraHeaders).map(([k, v]) => `  -H "${k}: ${v}" \\`);
 }
 
-function generateStaticShellScript(result: McpClientResult, skillName: string): string {
+function generateStaticShellScript(
+  result: McpClientResult,
+  skillName: string,
+): string {
   const { serverUrl, extraHeaders } = result;
   const headerLines = curlHeaderLines(extraHeaders);
 
@@ -178,28 +158,28 @@ function generateStaticShellScript(result: McpClientResult, skillName: string): 
     "",
     "# Capture session ID from initialize (required for stateful servers; no-op for stateless)",
     "TEMP_HEADERS=$(mktemp)",
-    "curl -s -X POST \"$MCP_URL\" \\",
-    "  -H \"Content-Type: application/json\" \\",
-    "  -H \"Accept: application/json, text/event-stream\" \\",
+    'curl -s -X POST "$MCP_URL" \\',
+    '  -H "Content-Type: application/json" \\',
+    '  -H "Accept: application/json, text/event-stream" \\',
     ...headerLines,
-    "  -D \"$TEMP_HEADERS\" \\",
+    '  -D "$TEMP_HEADERS" \\',
     `  -d '${initBody}' > /dev/null`,
     "",
     "SESSION_ID=$(grep -i \"^mcp-session-id:\" \"$TEMP_HEADERS\" | awk '{print $2}' | tr -d '\\r' || true)",
-    "rm -f \"$TEMP_HEADERS\"",
+    'rm -f "$TEMP_HEADERS"',
     "",
     "# Call the tool",
-    "if [ -n \"$SESSION_ID\" ]; then",
-    "  RESPONSE=$(curl -s -X POST \"$MCP_URL\" \\",
-    "    -H \"Content-Type: application/json\" \\",
-    "    -H \"Accept: application/json, text/event-stream\" \\",
+    'if [ -n "$SESSION_ID" ]; then',
+    '  RESPONSE=$(curl -s -X POST "$MCP_URL" \\',
+    '    -H "Content-Type: application/json" \\',
+    '    -H "Accept: application/json, text/event-stream" \\',
     ...headerLines.map((l) => l.replace(/^  /, "    ")),
-    "    -H \"Mcp-Session-Id: $SESSION_ID\" \\",
+    '    -H "Mcp-Session-Id: $SESSION_ID" \\',
     `    -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"method\\":\\"tools/call\\",\\"params\\":{\\"name\\":\\"$TOOL_NAME\\",\\"arguments\\":$ARGS}}")`,
     "else",
-    "  RESPONSE=$(curl -s -X POST \"$MCP_URL\" \\",
-    "    -H \"Content-Type: application/json\" \\",
-    "    -H \"Accept: application/json, text/event-stream\" \\",
+    '  RESPONSE=$(curl -s -X POST "$MCP_URL" \\',
+    '    -H "Content-Type: application/json" \\',
+    '    -H "Accept: application/json, text/event-stream" \\',
     ...headerLines.map((l) => l.replace(/^  /, "    ")),
     `    -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"method\\":\\"tools/call\\",\\"params\\":{\\"name\\":\\"$TOOL_NAME\\",\\"arguments\\":$ARGS}}")`,
     "fi",
@@ -208,7 +188,7 @@ function generateStaticShellScript(result: McpClientResult, skillName: string): 
     "if echo \"$RESPONSE\" | grep -q '^data: '; then",
     "  echo \"$RESPONSE\" | grep '^data: ' | tail -1 | sed 's/^data: //'",
     "else",
-    "  echo \"$RESPONSE\"",
+    '  echo "$RESPONSE"',
     "fi",
     "",
   ];
@@ -220,11 +200,12 @@ function generateOAuthShellScript(
   result: McpClientResult,
   skillName: string,
   oauth: OAuthTokenInfo,
+  agent: AgentConfig,
 ): string {
   const { serverUrl } = result;
 
-  const tokenFilePath = oauth.tokenFilePath
-    ?? `$HOME/.openclaw/mcptoskill/tokens/${skillName}.json`;
+  const tokenFilePath =
+    oauth.tokenFilePath ?? `${agent.tokensDir}/${skillName}.json`;
 
   const initBody = JSON.stringify({
     jsonrpc: "2.0",
@@ -262,7 +243,7 @@ function generateOAuthShellScript(
     "# --- Token management ---",
     "",
     "read_token() {",
-    "  if [ ! -f \"$TOKEN_FILE\" ]; then",
+    '  if [ ! -f "$TOKEN_FILE" ]; then',
     `    echo "Error: token file not found at $TOKEN_FILE" >&2`,
     `    echo "Re-run: npx @filiksyos/mcptoskill ${serverUrl}" >&2`,
     "    exit 1",
@@ -273,12 +254,12 @@ function generateOAuthShellScript(
     "is_expired() {",
     "  local expires_at",
     "  expires_at=$(jq -r '.expires_at // 0' \"$TOKEN_FILE\")",
-    "  if [ \"$expires_at\" = \"null\" ] || [ \"$expires_at\" = \"0\" ]; then",
+    '  if [ "$expires_at" = "null" ] || [ "$expires_at" = "0" ]; then',
     "    return 1",
     "  fi",
     "  local now",
     "  now=$(date +%s)",
-    "  [ \"$now\" -ge \"$((expires_at - 60))\" ]",
+    '  [ "$now" -ge "$((expires_at - 60))" ]',
     "}",
     "",
     ...refreshFunction,
@@ -295,31 +276,31 @@ function generateOAuthShellScript(
     "",
     "# --- MCP call ---",
     "",
-    "AUTH_HEADER=\"Authorization: Bearer $ACCESS_TOKEN\"",
+    'AUTH_HEADER="Authorization: Bearer $ACCESS_TOKEN"',
     "",
     "TEMP_HEADERS=$(mktemp)",
-    "curl -s -X POST \"$MCP_URL\" \\",
-    "  -H \"Content-Type: application/json\" \\",
-    "  -H \"Accept: application/json, text/event-stream\" \\",
-    "  -H \"$AUTH_HEADER\" \\",
-    "  -D \"$TEMP_HEADERS\" \\",
+    'curl -s -X POST "$MCP_URL" \\',
+    '  -H "Content-Type: application/json" \\',
+    '  -H "Accept: application/json, text/event-stream" \\',
+    '  -H "$AUTH_HEADER" \\',
+    '  -D "$TEMP_HEADERS" \\',
     `  -d '${initBody}' > /dev/null`,
     "",
     "SESSION_ID=$(grep -i \"^mcp-session-id:\" \"$TEMP_HEADERS\" | awk '{print $2}' | tr -d '\\r' || true)",
-    "rm -f \"$TEMP_HEADERS\"",
+    'rm -f "$TEMP_HEADERS"',
     "",
-    "if [ -n \"$SESSION_ID\" ]; then",
-    "  RESPONSE=$(curl -s -X POST \"$MCP_URL\" \\",
-    "    -H \"Content-Type: application/json\" \\",
-    "    -H \"Accept: application/json, text/event-stream\" \\",
-    "    -H \"$AUTH_HEADER\" \\",
-    "    -H \"Mcp-Session-Id: $SESSION_ID\" \\",
+    'if [ -n "$SESSION_ID" ]; then',
+    '  RESPONSE=$(curl -s -X POST "$MCP_URL" \\',
+    '    -H "Content-Type: application/json" \\',
+    '    -H "Accept: application/json, text/event-stream" \\',
+    '    -H "$AUTH_HEADER" \\',
+    '    -H "Mcp-Session-Id: $SESSION_ID" \\',
     `    -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"method\\":\\"tools/call\\",\\"params\\":{\\"name\\":\\"$TOOL_NAME\\",\\"arguments\\":$ARGS}}")`,
     "else",
-    "  RESPONSE=$(curl -s -X POST \"$MCP_URL\" \\",
-    "    -H \"Content-Type: application/json\" \\",
-    "    -H \"Accept: application/json, text/event-stream\" \\",
-    "    -H \"$AUTH_HEADER\" \\",
+    '  RESPONSE=$(curl -s -X POST "$MCP_URL" \\',
+    '    -H "Content-Type: application/json" \\',
+    '    -H "Accept: application/json, text/event-stream" \\',
+    '    -H "$AUTH_HEADER" \\',
     `    -d "{\\"jsonrpc\\":\\"2.0\\",\\"id\\":1,\\"method\\":\\"tools/call\\",\\"params\\":{\\"name\\":\\"$TOOL_NAME\\",\\"arguments\\":$ARGS}}")`,
     "fi",
     "",
@@ -327,7 +308,7 @@ function generateOAuthShellScript(
     "if echo \"$RESPONSE\" | grep -q '^data: '; then",
     "  echo \"$RESPONSE\" | grep '^data: ' | tail -1 | sed 's/^data: //'",
     "else",
-    "  echo \"$RESPONSE\"",
+    '  echo "$RESPONSE"',
     "fi",
     "",
   ];
@@ -347,24 +328,24 @@ function generateClientSideRefreshFunction(oauth: OAuthTokenInfo): string[] {
     "  token_endpoint=$(jq -r '.token_endpoint // empty' \"$TOKEN_FILE\")",
     "  client_id=$(jq -r '.client_id // empty' \"$TOKEN_FILE\")",
     "",
-    "  if [ -z \"$rt\" ]; then",
+    '  if [ -z "$rt" ]; then',
     `    echo "Error: no refresh token — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
     "    exit 1",
     "  fi",
     "",
-    "  REFRESH_BODY=\"grant_type=refresh_token&refresh_token=$rt&client_id=$client_id\"" +
+    '  REFRESH_BODY="grant_type=refresh_token&refresh_token=$rt&client_id=$client_id"' +
       resourceParam,
     "",
     "  local resp",
-    "  resp=$(curl -s -X POST \"$token_endpoint\" \\",
-    "    -H \"Content-Type: application/x-www-form-urlencoded\" \\",
-    "    -d \"$REFRESH_BODY\")",
+    '  resp=$(curl -s -X POST "$token_endpoint" \\',
+    '    -H "Content-Type: application/x-www-form-urlencoded" \\',
+    '    -d "$REFRESH_BODY")',
     "",
     "  local new_at",
     "  new_at=$(echo \"$resp\" | jq -r '.access_token // empty')",
-    "  if [ -z \"$new_at\" ]; then",
+    '  if [ -z "$new_at" ]; then',
     `    echo "Error: token refresh failed — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
-    "    echo \"$resp\" >&2",
+    '    echo "$resp" >&2',
     "    exit 1",
     "  fi",
     "",
@@ -374,12 +355,12 @@ function generateClientSideRefreshFunction(oauth: OAuthTokenInfo): string[] {
     "  now=$(date +%s)",
     "  new_expires_at=$((now + new_exp))",
     "",
-    "  jq --arg at \"$new_at\" \\",
-    "     --arg rt \"${new_rt:-$rt}\" \\",
-    "     --argjson ea \"$new_expires_at\" \\",
+    '  jq --arg at "$new_at" \\',
+    '     --arg rt "${new_rt:-$rt}" \\',
+    '     --argjson ea "$new_expires_at" \\',
     "     '.access_token=$at | .refresh_token=$rt | .expires_at=$ea' \\",
-    "     \"$TOKEN_FILE\" > \"${TOKEN_FILE}.tmp\" && mv \"${TOKEN_FILE}.tmp\" \"$TOKEN_FILE\"",
-    "  chmod 600 \"$TOKEN_FILE\"",
+    '     "$TOKEN_FILE" > "${TOKEN_FILE}.tmp" && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"',
+    '  chmod 600 "$TOKEN_FILE"',
     "}",
   ];
 }
@@ -393,27 +374,27 @@ function generateSupabaseRefreshFunction(oauth: OAuthTokenInfo): string[] {
     "  client_id=$(jq -r '.client_id // empty' \"$TOKEN_FILE\")",
     "  client_secret=$(jq -r '.client_secret // empty' \"$TOKEN_FILE\")",
     "",
-    "  if [ -z \"$rt\" ]; then",
+    '  if [ -z "$rt" ]; then',
     `    echo "Error: no refresh token — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
     "    exit 1",
     "  fi",
     "",
-    "  if [ -z \"$client_secret\" ]; then",
+    '  if [ -z "$client_secret" ]; then',
     `    echo "Error: token file missing client_secret — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
     "    exit 1",
     "  fi",
     "",
     "  local resp",
-    "  resp=$(curl -s -X POST \"$token_endpoint\" \\",
-    "    -H \"Content-Type: application/x-www-form-urlencoded\" \\",
-    "    -u \"$client_id:$client_secret\" \\",
-    "    -d \"grant_type=refresh_token&refresh_token=$rt\")",
+    '  resp=$(curl -s -X POST "$token_endpoint" \\',
+    '    -H "Content-Type: application/x-www-form-urlencoded" \\',
+    '    -u "$client_id:$client_secret" \\',
+    '    -d "grant_type=refresh_token&refresh_token=$rt")',
     "",
     "  local new_at",
     "  new_at=$(echo \"$resp\" | jq -r '.access_token // empty')",
-    "  if [ -z \"$new_at\" ]; then",
+    '  if [ -z "$new_at" ]; then',
     `    echo "Error: token refresh failed — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
-    "    echo \"$resp\" >&2",
+    '    echo "$resp" >&2',
     "    exit 1",
     "  fi",
     "",
@@ -423,12 +404,12 @@ function generateSupabaseRefreshFunction(oauth: OAuthTokenInfo): string[] {
     "  now=$(date +%s)",
     "  new_expires_at=$((now + new_exp))",
     "",
-    "  jq --arg at \"$new_at\" \\",
-    "     --arg rt \"${new_rt:-$rt}\" \\",
-    "     --argjson ea \"$new_expires_at\" \\",
+    '  jq --arg at "$new_at" \\',
+    '     --arg rt "${new_rt:-$rt}" \\',
+    '     --argjson ea "$new_expires_at" \\',
     "     '.access_token=$at | .refresh_token=$rt | .expires_at=$ea' \\",
-    "     \"$TOKEN_FILE\" > \"${TOKEN_FILE}.tmp\" && mv \"${TOKEN_FILE}.tmp\" \"$TOKEN_FILE\"",
-    "  chmod 600 \"$TOKEN_FILE\"",
+    '     "$TOKEN_FILE" > "${TOKEN_FILE}.tmp" && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"',
+    '  chmod 600 "$TOKEN_FILE"',
     "}",
   ];
 }
@@ -439,21 +420,21 @@ function generateProxiedRefreshFunction(oauth: OAuthTokenInfo): string[] {
     "  local rt",
     "  rt=$(jq -r '.refresh_token // empty' \"$TOKEN_FILE\")",
     "",
-    "  if [ -z \"$rt\" ]; then",
+    '  if [ -z "$rt" ]; then',
     `    echo "Error: no refresh token — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
     "    exit 1",
     "  fi",
     "",
     "  local resp",
     `  resp=$(curl -s -X POST "https://mcptoskill.com/api/refresh/${oauth.provider}" \\`,
-    "    -H \"Content-Type: application/json\" \\",
-    "    -d \"{\\\"refresh_token\\\":\\\"$rt\\\"}\") ",
+    '    -H "Content-Type: application/json" \\',
+    '    -d "{\\"refresh_token\\":\\"$rt\\"}") ',
     "",
     "  local new_at",
     "  new_at=$(echo \"$resp\" | jq -r '.access_token // empty')",
-    "  if [ -z \"$new_at\" ]; then",
+    '  if [ -z "$new_at" ]; then',
     `    echo "Error: token refresh failed — re-run: npx @filiksyos/mcptoskill ${oauth.mcp_url}" >&2`,
-    "    echo \"$resp\" >&2",
+    '    echo "$resp" >&2',
     "    exit 1",
     "  fi",
     "",
@@ -463,12 +444,12 @@ function generateProxiedRefreshFunction(oauth: OAuthTokenInfo): string[] {
     "  now=$(date +%s)",
     "  new_expires_at=$((now + new_exp))",
     "",
-    "  jq --arg at \"$new_at\" \\",
-    "     --arg rt \"${new_rt:-$rt}\" \\",
-    "     --argjson ea \"$new_expires_at\" \\",
+    '  jq --arg at "$new_at" \\',
+    '     --arg rt "${new_rt:-$rt}" \\',
+    '     --argjson ea "$new_expires_at" \\',
     "     '.access_token=$at | .refresh_token=$rt | .expires_at=$ea' \\",
-    "     \"$TOKEN_FILE\" > \"${TOKEN_FILE}.tmp\" && mv \"${TOKEN_FILE}.tmp\" \"$TOKEN_FILE\"",
-    "  chmod 600 \"$TOKEN_FILE\"",
+    '     "$TOKEN_FILE" > "${TOKEN_FILE}.tmp" && mv "${TOKEN_FILE}.tmp" "$TOKEN_FILE"',
+    '  chmod 600 "$TOKEN_FILE"',
     "}",
   ];
 }
@@ -481,16 +462,16 @@ export interface GeneratedSkill {
 
 export function generate(
   result: McpClientResult,
+  agent: AgentConfig,
   nameOverride?: string,
   oauth?: OAuthTokenInfo,
-  target: Target = "openclaw",
 ): GeneratedSkill {
   const skillName = nameOverride ?? slugify(result.serverInfo.name);
   return {
     skillName,
-    skillMd: generateSkillMd(result, skillName, target),
+    skillMd: generateSkillMd(result, skillName, agent),
     shellScript: oauth
-      ? generateOAuthShellScript(result, skillName, oauth)
+      ? generateOAuthShellScript(result, skillName, oauth, agent)
       : generateStaticShellScript(result, skillName),
   };
 }
