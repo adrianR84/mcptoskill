@@ -34,8 +34,15 @@ export async function promptAuth(
   }
 
   const options = hasOAuthProvider
-    ? "? Auth: (1) OAuth  (2) API key  (3) No auth\n> "
-    : "? Auth: (2) API key  (3) No auth (OAuth only for Notion, PostHog, Supabase)\n> ";
+    ? `\n🔐 Authentication Options:
+  (1) 🌐 OAuth
+  (2) 🔑 API key  
+  (3) ⚡ No auth
+> `
+    : `\n🔐 Authentication Options:
+  (2) 🔑 API key
+  (3) ⚡ No auth  (OAuth only for Notion, PostHog, Supabase)
+> `;
 
   const answer = await question(options);
   const n = answer === "" ? "1" : answer;
@@ -59,11 +66,14 @@ export async function promptTarget(
   }
 
   const agentOptions = agentsConfig.agents
-    .map((agent, index) => `(${index + 1}) ${agent.name}`)
-    .join("  ");
+    .map((agent, index) => `  (${index + 1}) 🤖 ${agent.name}`)
+    .join("\n");
 
   const answer = await question(
-    `? Install to: ${agentOptions}  (${agentsConfig.agents.length + 1}) All\n> `,
+    `\n🎯 Choose Target Agent:
+${agentOptions}
+  (${agentsConfig.agents.length + 1}) 🌍 All agents
+> `,
   );
   const n = answer === "" ? "1" : answer;
 
@@ -82,9 +92,6 @@ export async function promptTarget(
 }
 
 export async function promptApiKey(): Promise<string> {
-  const token = await question("? Paste your Bearer token:\n> ");
-  if (!token) {
-    throw new Error("No token provided.");
-  }
-  return token;
+  const answer = await question("\n🔑 Enter API key:\n> ");
+  return answer.trim();
 }
