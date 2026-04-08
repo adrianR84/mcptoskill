@@ -120,11 +120,3 @@ Hermes auto-discovers skills from `~/.hermes/skills/`; no config file needed. Th
 **Skill visibility** — Generated skills no longer declare `requires.bins: ["curl"]` because OpenClaw checks bins against the gateway process PATH at load time; in systemd/Docker/minimal environments, curl is often not found there, causing skills to be filtered out. The script runs in the agent's execution context where curl is typically available.
 
 ---
-
-## Web Page
-
-[https://mcptoskill.com](https://mcptoskill.com)
-
-Generate the correct CLI command for any MCP server without leaving your browser.
-
-**Contributing** — Fork the repo → edit → open a pull request.
