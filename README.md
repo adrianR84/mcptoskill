@@ -2,7 +2,8 @@
 
 `mcptoskill` connects to any remote MCP server, discovers its tools, and generates skills for multiple AI agents (OpenClaw, Hermes, Claude) — letting you wire any MCP-compatible service into your AI agent environment with a single command.
 
-**Original work by filiksyos** - Enhanced with multi-agent support and aesthetic UI improvements.
+**Original work by filiksyos** - Enhanced with multi-agent support and aesthetic UI improvements.  
+**Source**: https://github.com/filiksyos/mcptoskill
 
 ---
 
@@ -12,7 +13,6 @@
 
 - Global install via `npm install -g @adrianR84/mcptoskill`
 - No-install via `npx @adrianR84/mcptoskill <url>`
-- Or clone from source: `git clone https://github.com/adrianR84/mcptoskill.git`
 
 **Usage** — full command signature:
 
