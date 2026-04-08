@@ -10,14 +10,14 @@
 
 **Install** — two variants:
 
-- Global install via `npm install -g @filiksyos/mcptoskill`
-- No-install via `npx @filiksyos/mcptoskill <url>`
+- Global install via `npm install -g @adrianR84/mcptoskill`
+- No-install via `npx @adrianR84/mcptoskill <url>`
 - Or clone from source: `git clone https://github.com/adrianR84/mcptoskill.git`
 
 **Usage** — full command signature:
 
 ```
-npx @filiksyos/mcptoskill <mcp-server-url> [--target=openclaw|hermes|claude|all] [--header "Key: Value"] [--name=<skill-name>] [--out=<output-dir>] [--skill-key=<key>]
+npx @adrianR84/mcptoskill <mcp-server-url> [--target=openclaw|hermes|claude|all] [--header "Key: Value"] [--name=<skill-name>] [--out=<output-dir>] [--skill-key=<key>]
 ```
 
 **Flags**
@@ -36,35 +36,35 @@ npx @filiksyos/mcptoskill <mcp-server-url> [--target=openclaw|hermes|claude|all]
 1. **Context7 (no auth) - generates skill for default agent (Claude):**
 
 ```
-npx @filiksyos/mcptoskill https://mcp.context7.com/mcp
+npx @adrianR84/mcptoskill https://mcp.context7.com/mcp
 ```
 
 2. **Target specific agents:**
 
 ```
 # Generate for Claude
-npx @filiksyos/mcptoskill https://mcp.context7.com/mcp --target=claude
+npx @adrianR84/mcptoskill https://mcp.context7.com/mcp --target=claude
 
 # Generate for OpenClaw
-npx @filiksyos/mcptoskill https://mcp.context7.com/mcp --target=openclaw
+npx @adrianR84/mcptoskill https://mcp.context7.com/mcp --target=openclaw
 
 # Generate for Hermes
-npx @filiksyos/mcptoskill https://mcp.context7.com/mcp --target=hermes
+npx @adrianR84/mcptoskill https://mcp.context7.com/mcp --target=hermes
 
 # Generate for all configured agents
-npx @filiksyos/mcptoskill https://mcp.context7.com/mcp --target=all
+npx @adrianR84/mcptoskill https://mcp.context7.com/mcp --target=all
 ```
 
 3. **Custom skill name and output:**
 
 ```
-npx @filiksyos/mcptoskill https://mcp.context7.com/mcp --name=my-context7-skill --out=./my-skills
+npx @adrianR84/mcptoskill https://mcp.context7.com/mcp --name=my-context7-skill --out=./my-skills
 ```
 
 4. **OAuth providers (Notion, PostHog, Supabase) - interactive prompts:**
 
 ```
-npx @filiksyos/mcptoskill https://mcp.notion.com/mcp
+npx @adrianR84/mcptoskill https://mcp.notion.com/mcp
 ```
 
 The CLI prints an auth URL. Open it in your browser, complete OAuth, then copy the redirect URL from the address bar (it will fail to load — that's fine) and paste it into the terminal. Tokens are saved locally to agent-specific token directories.
@@ -72,23 +72,23 @@ The CLI prints an auth URL. Open it in your browser, complete OAuth, then copy t
 5. **API key authentication:**
 
 ```
-npx @filiksyos/mcptoskill https://mcp.supabase.com/mcp --header "Authorization: Bearer your-token"
+npx @adrianR84/mcptoskill https://mcp.supabase.com/mcp --header "Authorization: Bearer your-token"
 ```
 
 ```
-npx @filiksyos/mcptoskill "https://mcp.supabase.com/mcp?project_ref=YOUR_REF" --header "Authorization: Bearer YOUR_TOKEN"
+npx @adrianR84/mcptoskill "https://mcp.supabase.com/mcp?project_ref=YOUR_REF" --header "Authorization: Bearer YOUR_TOKEN"
 ```
 
-6. Exa MCP (key in URL):
+6. **Exa MCP (key in URL):**
 
 ```
-npx @filiksyos/mcptoskill "https://mcp.exa.ai/mcp?exaApiKey=YOUR_KEY"
+npx @adrianR84/mcptoskill "https://mcp.exa.ai/mcp?exaApiKey=YOUR_KEY"
 ```
 
-7. Render MCP (API key auth) — create an API key from [Render Dashboard → Account Settings → API Keys](https://dashboard.render.com/settings#api-keys):
+7. \*\*Render MCP (API key auth) — create an API key from [Render Dashboard → Account Settings → API Keys](https://dashboard.render.com/settings#api-keys):
 
 ```
-npx @filiksyos/mcptoskill https://mcp.render.com/mcp --header "Authorization: Bearer YOUR_RENDER_API_KEY"
+npx @adrianR84/mcptoskill https://mcp.render.com/mcp --header "Authorization: Bearer YOUR_RENDER_API_KEY"
 ```
 
 ## Multi-Agent Configuration
